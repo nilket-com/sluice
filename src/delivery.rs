@@ -1,6 +1,7 @@
 use crate::{
-    cli::Options,
+    cli::{Format, Options},
     engine::{Event, Sink},
+    render,
 };
 use std::{
     fs::File,
@@ -18,6 +19,7 @@ use std::{
 
 pub struct Output {
     writer: SyncSender<PendingWrite>,
+    format: Format,
     notify: Option<PathBuf>,
     args: Vec<String>,
     timeout: Duration,
@@ -50,6 +52,7 @@ impl Output {
         });
         Self {
             writer,
+            format: options.format,
             notify: options.notify.clone(),
             args: options.notify_arg.clone(),
             timeout: options.notify_timeout,
@@ -60,13 +63,23 @@ impl Output {
 
 impl Sink for Output {
     fn emit(&mut self, event: Event) -> io::Result<()> {
-        let mut json = serde_json::to_vec(&event)?;
-        json.push(b'\n');
-        let json = Arc::new(json);
+        // Hooks always receive structured events. Plain Markdown pipelines do
+        // not pay for JSON encoding or allocate a second serialized payload.
+        let json = if self.format == Format::Jsonl || self.notify.is_some() {
+            let mut bytes = serde_json::to_vec(&event)?;
+            bytes.push(b'\n');
+            Some(Arc::new(bytes))
+        } else {
+            None
+        };
+        let output = match self.format {
+            Format::Markdown => Arc::new(render::markdown(&event).into_bytes()),
+            Format::Jsonl => json.as_ref().unwrap().clone(),
+        };
         let (result, receiver) = mpsc::sync_channel(1);
         self.writer
             .send(PendingWrite {
-                bytes: json.clone(),
+                bytes: output,
                 result,
             })
             .map_err(|_| io::Error::other("stdout worker disconnected"))?;
@@ -95,7 +108,7 @@ impl Sink for Output {
         // A seekable temporary stdin avoids deadlock when a hook never reads stdin.
         // The file is unnamed and removed automatically, including on failures.
         let mut input: File = tempfile::tempfile()?;
-        input.write_all(&json)?;
+        input.write_all(json.as_ref().unwrap())?;
         input.rewind()?;
         let mut hook = Command::new(executable)
             .args(&self.args)

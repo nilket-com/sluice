@@ -1,6 +1,7 @@
 mod cli;
 mod delivery;
 mod engine;
+mod render;
 
 use clap::Parser;
 use cli::{Action, Cli};

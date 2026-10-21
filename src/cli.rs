@@ -1,4 +1,4 @@
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use std::{path::PathBuf, time::Duration};
 
 #[derive(Debug, Parser)]
@@ -10,9 +10,15 @@ pub struct Cli {
     pub command: Option<Action>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+pub enum Format {
+    Markdown,
+    Jsonl,
+}
+
 #[derive(Debug, Args)]
 pub struct Options {
-    /// Maximum batch text bytes (JSON framing is additional)
+    /// Maximum batch text bytes (output framing is additional)
     #[arg(long, default_value = "10KiB", value_parser = size)]
     pub max_bytes: usize,
     /// Maximum age of a nonempty batch; continued input does not reset it
@@ -33,10 +39,10 @@ pub struct Options {
     /// Maximum physical line bytes, including LF; longer lines fail explicitly
     #[arg(long, default_value = "64KiB", value_parser = size)]
     pub max_line_bytes: usize,
-    /// Output encoding (schema version 1)
-    #[arg(long, default_value = "jsonl", value_parser = ["jsonl"])]
-    pub format: String,
-    /// Deliver each event to an executable via stdin, in addition to stdout
+    /// Readable Markdown, or structured JSONL (schema version 1)
+    #[arg(long, default_value = "markdown", value_enum)]
+    pub format: Format,
+    /// Deliver each event as JSONL to an executable, independent of stdout format
     #[arg(long, value_name = "EXECUTABLE")]
     pub notify: Option<PathBuf>,
     /// Literal argument to the notification executable (repeatable; no shell)

@@ -14,6 +14,7 @@ struct Harness {
 impl Harness {
     fn new(args: &[&str]) -> Self {
         let mut child = Command::new(env!("CARGO_BIN_EXE_sluice"))
+            .args(["--format", "jsonl"])
             .args(args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
