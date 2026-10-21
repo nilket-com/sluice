@@ -1,0 +1,20 @@
+name: CI
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        toolchain: [stable, '1.85.0']
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install "${{ matrix.toolchain }}" --profile minimal --component rustfmt --component clippy
+      - run: cargo +${{ matrix.toolchain }} fmt --check
+      - run: cargo +${{ matrix.toolchain }} clippy --locked --all-targets -- -D warnings
+      - run: cargo +${{ matrix.toolchain }} test --locked
+      - run: cargo +${{ matrix.toolchain }} build --locked
+      - run: python3 examples/compare.py --sluice target/debug/sluice --output-dir /tmp/sluice-comparison

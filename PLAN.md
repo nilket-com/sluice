@@ -1,5 +1,16 @@
 # Sluice implementation plan
 
+## Current status
+
+The initial Rust implementation covers the stream contract, local filter,
+sequential notification hooks, and command ownership (stages 1–4 below).
+The schema and boundary decisions are specified in
+[docs/stream-contract.md](docs/stream-contract.md). CI and a reproducible byte/event
+comparison are included. Release binaries, durable delivery, and measurements of
+real agent interaction/notification latency remain future work. The original
+stages below explain the motivation and validation criteria; the stream contract
+is authoritative where it resolves their open decisions.
+
 ## Motivation and success criteria
 
 An agent should be able to leave a long-running job alone, receive a useful
