@@ -88,8 +88,12 @@ Start with a documented chatd adapter example. Keep transport integration separa
 from stream processing. Notification integration must actually wake the consumer;
 saving another file that the agent must poll is insufficient.
 
-A durable spool with acknowledgments can follow if the first integration needs
-recovery across restarts. Do not promise durable delivery before implementing it.
+Implemented the bounded optional outbox slice: stable IDs, fsynced events and
+attempt states, independent one-shot dispatch, retained bounded adapter evidence,
+unknown outcomes without implicit retries, and explicit recipient receipt proof.
+Synthetic delayed/killed adapters test this without submitting real notifications.
+Transport-specific lookup/deduplication and actual wakeups remain adapter duties;
+Sluice does not infer delivery from a watch or successful adapter exit.
 
 ## 4. Own the command lifecycle
 

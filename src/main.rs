@@ -1,6 +1,7 @@
 mod cli;
 mod delivery;
 mod engine;
+mod outbox;
 mod render;
 
 use clap::Parser;
@@ -97,10 +98,14 @@ fn main() {
 }
 
 fn run(cli: Cli, signal: Arc<AtomicUsize>) -> io::Result<i32> {
+    if let Some(Action::Outbox { action }) = cli.command {
+        return outbox::run(action, signal);
+    }
     let options = cli.options;
     // Validate filters before creating files or starting a child.
     let mut engine =
         Engine::new(&options, Output::new(&options, signal.clone())).map_err(io::Error::other)?;
+    engine.sink.init_outbox(&options)?;
     let mut log = options
         .log
         .as_ref()
@@ -114,6 +119,7 @@ fn run(cli: Cli, signal: Arc<AtomicUsize>) -> io::Result<i32> {
     };
     let reader: Box<dyn Read + Send> = match cli.command {
         None => Box::new(io::stdin()),
+        Some(Action::Outbox { .. }) => unreachable!(),
         Some(Action::Run { command }) => {
             let (reader, writer) = os_pipe::pipe()?;
             let child = Command::new(&command[0])

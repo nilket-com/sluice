@@ -18,6 +18,7 @@ use std::{
 };
 
 pub struct Output {
+    outbox: Option<crate::outbox::Collector>,
     writer: SyncSender<PendingWrite>,
     format: Format,
     notify: Option<PathBuf>,
@@ -51,6 +52,7 @@ impl Output {
             }
         });
         Self {
+            outbox: None,
             writer,
             format: options.format,
             notify: options.notify.clone(),
@@ -59,10 +61,21 @@ impl Output {
             signal,
         }
     }
+    pub fn init_outbox(&mut self, options: &Options) -> io::Result<()> {
+        self.outbox = options
+            .outbox
+            .as_ref()
+            .map(|p| crate::outbox::Collector::new(p, options.job.clone()))
+            .transpose()?;
+        Ok(())
+    }
 }
 
 impl Sink for Output {
     fn emit(&mut self, event: Event) -> io::Result<()> {
+        if let Some(outbox) = &self.outbox {
+            outbox.persist(&event)?;
+        }
         // Hooks always receive structured events. Plain text and Markdown pipelines do
         // not pay for JSON encoding or allocate a second serialized payload.
         let json = if self.format == Format::Jsonl || self.notify.is_some() {

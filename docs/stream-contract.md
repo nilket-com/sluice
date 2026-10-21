@@ -176,3 +176,72 @@ Normal completion waits for both output EOF and the direct child's exit. A
 background descendant that keeps the output pipe open will delay completion.
 Descendants that deliberately create a new process group escape group cleanup.
 Sluice does not claim to be a process supervisor or a sandbox.
+
+
+## Durable outbox (Linux)
+
+`--outbox DIR [--job LABEL]` is optional and independent of stdout format.
+Only watch and end events are queued; routine batch events stay on stdout and
+do not create notifications or overdue receipt obligations.
+Each collector creates a random 128-bit run ID; event IDs combine it with the
+engine sequence. An immutable schema-1 JSON object adds `run_id`, `event_id`,
+absolute UTF-8 `outbox` and optional `job` (at most 4096 bytes). Non-UTF-8 input
+or canonical roots are rejected before starting the observed job. Newly created
+root directories and missing ancestors each have their parent directory fsynced. The collector writes,
+fsyncs and atomically renames the event, then its pending state, before stdout
+delivery. A persisted event can therefore exist even if stdout failed. A crash
+before pending state may leave an incomplete directory which is never dispatched.
+Fsync provides local filesystem durability, not protection against failed storage.
+An outbox write failure remains a processing error; this is not a job supervisor.
+
+`sluice outbox dispatch DIR --adapter EXEC [--adapter-arg ARG] [--timeout 30s]`
+takes a nonblocking OS lock and processes a snapshot of pending events once.
+Only another dispatcher reports busy while this lock is owned. Status and show
+are read-only and remain available, and recipient acknowledgments can arrive
+while an adapter is still running.
+New collector events may arrive concurrently and can require another dispatch.
+State and invocation metadata are durable **before** spawning the adapter. Each
+adapter gets the event via seekable stdin, literal arguments and its own process
+group. stdout and stderr go directly to retained files named `stdout` and `stderr`,
+each bounded to a 1MiB prefix by independent parent-drained pipes. Additional
+bytes are drained and discarded without changing the adapter's file-size limits
+or exit status. Its session logs, databases and other unrelated files remain
+unrestricted. `capture.json` records byte counts, truncation and whether each
+pipe reached EOF. After adapter cleanup, draining has a bounded grace period;
+an escaped descendant holding a pipe cannot block dispatch indefinitely.
+Capture preserves bytes without line parsing, so an arbitrarily long line cannot
+grow collector memory. Captured prefixes survive a killed dispatcher; final
+capture metadata may be absent when interrupted.
+
+A successful adapter exit records `submitted`. Nonzero exit, timeout, interrupted
+dispatch or failed spawn records `unknown`: a failed adapter could have submitted
+before failing. A dispatcher killed after durable `attempted` state leaves that
+state until the next dispatcher converts it to `unknown`; read-only status/show
+do not mistake an active attempt for an abandoned one. Evidence survives.
+The direct adapter receives SIGKILL when its dispatcher dies (Linux PDEATHSIG).
+Adapters must not daemonize or escape their process group; this is not a sandbox.
+SIGINT/SIGTERM during dispatch kills the adapter group and records unknown.
+Dispatch returns one if any unreceived unknown outcomes remain, even when no
+new events were attempted. Zero means no uncertain outcomes, not recipient receipt.
+Unknown events are never silently resent. Even a crash before spawn is treated
+conservatively, sacrificing automatic retry to avoid duplicates. Stable event IDs
+allow an adapter to perform transport-specific lookup and deduplication; Sluice
+itself does not pretend to query a native queue it cannot inspect.
+
+`status DIR` prints compact state counts and always returns zero on successful
+inspection by default. `status DIR --fail-unreceived [--older-than 10m]` returns
+one when pending/submitted/unknown events lack recipient receipt past the given
+age, measured from detection (without `--older-than`, any unreceived event).
+An independent timer can use this as a backstop without trusting the adapter.
+This command sends no notifications and does not imply audit acceptance. `show DIR EVENT_ID` prints the immutable
+event, current state and evidence directory. `ack DIR EVENT_ID --proof TEXT`
+records recipient-provided receipt evidence (1–4096 nonblank bytes) and marks an
+attempted, unknown or submitted event `received`; pending events cannot be
+acknowledged. Receipt creation is write-once and independent of adapter state,
+so later adapter completion cannot overwrite a receipt. The receipt contains
+the exact delivery-state snapshot observed at acknowledgment.
+Acknowledgment is a human/recipient assertion, not cryptographic authentication.
+It is separate from adapter exit success, job success, audit and promotion.
+There is no automatic retry, background daemon, log rotation or queue pruning.
+Use a private trusted local directory; other users able to modify it can tamper
+with evidence. Raw stdout remains unchanged and chatd is not required.

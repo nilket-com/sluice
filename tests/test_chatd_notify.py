@@ -24,6 +24,9 @@ if "status" in args:
               "wake_kinds": ["request"], "session": "intended-session"}]
     if os.environ.get("NO_PATH"): peers[1]["path_ready"] = False
     print(json.dumps({"participants": peers}))
+elif "lookup" in args:
+    with open(os.environ["RECORD"], "w") as f: json.dump({"args": args}, f)
+    print(json.dumps({"id": "stored-event-id"}))
 elif "send" in args:
     if os.environ.get("SEND_ERROR"):
         print("UnknownParticipant: unknown participant", file=sys.stderr)
@@ -59,6 +62,33 @@ else: sys.exit(2)
         result = self.invoke("--sender", "codex", event={"type": "end", "reason": "exit"})
         self.assertEqual(result.returncode, 2)
         self.assertIn("must be distinct", result.stderr)
+        self.assertFalse((self.path / "record.json").exists())
+
+    def test_stable_event_id_is_used_as_transport_idempotency_key(self):
+        result = self.invoke(event={"type": "watch", "reason": "match", "event_id": "run-abc:2", "watch": "GATE_COMPLETE"})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        args = json.loads((self.path / "record.json").read_text())["args"]
+        self.assertEqual(args[args.index("--idempotency-key") + 1], "run-abc:2")
+        self.assertIn("GATE_COMPLETE", args[args.index("--summary") + 1])
+
+    def test_cancellation_signal_takes_precedence_over_child_exit(self):
+        result = self.invoke(event={"type": "end", "reason": "signal", "exit_code": 0, "signal": 15})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        args = json.loads((self.path / "record.json").read_text())["args"]
+        self.assertIn("signal=15", args[args.index("--summary") + 1])
+        self.assertNotIn("exit=0", args[args.index("--summary") + 1])
+
+    def test_lookup_is_read_only_and_does_not_resend(self):
+        result = self.invoke("--lookup-event", "run-abc:2")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        args = json.loads((self.path / "record.json").read_text())["args"]
+        self.assertIn("lookup", args)
+        self.assertNotIn("send", args)
+        self.assertIn("not recipient acknowledgement", result.stdout)
+
+    def test_invalid_event_id_is_rejected_without_transport(self):
+        result = self.invoke(event={"type": "end", "reason": "exit", "event_id": "bad key"})
+        self.assertEqual(result.returncode, 1)
         self.assertFalse((self.path / "record.json").exists())
 
     def test_info_is_an_explicit_opt_in(self):

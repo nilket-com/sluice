@@ -111,7 +111,40 @@ sequentially after stdout is flushed; failure stops processing, and the default
 30s timeout kills a stuck hook's process group. There are no automatic retries.
 Slow hooks or blocked stdout impose backpressure.
 
-The [optional chatd adapter guide](docs/chatd.md) covers one possible transport,
+For recoverable delivery, prefer the optional disk outbox. The collector only
+persists watch/end events; a separate process invokes adapters, so a notification timeout
+cannot terminate the observed command:
+
+```sh
+sluice --outbox ./events --job build --watch-for 'finished' run -- cargo test
+sluice outbox dispatch ./events --adapter /path/to/notifier --timeout 30s
+sluice outbox status ./events
+# Optional independent backstop: exit 1 if receipt remains absent after 10 minutes
+sluice outbox status ./events --fail-unreceived --older-than 10m
+sluice outbox show ./events EVENT_ID
+# Only after the recipient actually confirms this event:
+sluice outbox ack ./events EVENT_ID --proof 'recipient session received EVENT_ID'
+```
+
+The dispatcher delivers the same JSONL event protocol with additive `event_id`,
+`run_id`, absolute `outbox`, and optional `job` fields. It retains adapter stdout,
+stderr, invocation details and outcome. **Adapter exit zero means submitted,
+not received.** Timeouts, interruption and nonzero exits mean unknown; they are
+never automatically retried. Dispatch returns nonzero while unknown outcomes
+remain; rerunning it sends only pending events. Routine batches stay on stdout.
+An explicit recipient receipt is needed to mark an event received. This does not
+mean the job passed, was audited, or was approved.
+
+The outbox is local Linux storage, not an automatic wakeup service. Schedule or
+invoke its dispatcher independently and supply an adapter that wakes the intended
+recipient. Dispatch is a one-shot snapshot, not a daemon. Disk retention is manual;
+use a private directory on a local filesystem. See the
+[outbox contract](docs/stream-contract.md#durable-outbox-linux) for bounds and
+crash behavior. Existing `--notify` remains synchronous fail-fast compatibility
+mode and cannot be combined with `--outbox`.
+
+The [native Codex adapter guide](docs/native-codex.md) uses the local queue command
+without chatd. The [optional chatd adapter guide](docs/chatd.md) covers another transport,
 including registration, session routing, and wake policy. It is separate from
 Sluice's normal stream processing.
 

@@ -46,6 +46,12 @@ pub struct Options {
     /// Deliver each event as JSONL to an executable, independent of stdout format
     #[arg(long, value_name = "EXECUTABLE")]
     pub notify: Option<PathBuf>,
+    /// Persist events for independent delivery (cannot be combined with --notify)
+    #[arg(long, conflicts_with = "notify")]
+    pub outbox: Option<PathBuf>,
+    /// Opaque job label stored with durable events
+    #[arg(long, requires = "outbox")]
+    pub job: Option<String>,
     /// Literal argument to the notification executable (repeatable; no shell)
     #[arg(
         long,
@@ -61,6 +67,11 @@ pub struct Options {
 
 #[derive(Debug, Subcommand)]
 pub enum Action {
+    /// Inspect and deliver a durable notification outbox
+    Outbox {
+        #[command(subcommand)]
+        action: crate::outbox::Action,
+    },
     /// Run a command with merged stdout/stderr, forward signals, and report its status
     Run {
         #[arg(required = true, last = true, value_name = "COMMAND")]
