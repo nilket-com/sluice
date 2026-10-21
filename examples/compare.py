@@ -17,28 +17,36 @@ raw = b"".join(
 ) + b"Finalization complete\n"
 (args.output_dir / "raw.log").write_bytes(raw)
 report = {"input_bytes": len(raw), "input_lines": raw.count(b"\n"), "scenarios": {}}
-for label, flags in (
-    ("batched", []),
-    ("filtered", ["--filter-in", "^ERROR", "--watch-for", "Finalization complete"]),
+for label, format_name, flags in (
+    ("batched-markdown", "markdown", []),
+    ("batched-jsonl", "jsonl", []),
+    ("filtered-markdown", "markdown", ["--filter-in", "^ERROR", "--watch-for", "Finalization complete"]),
+    ("filtered-jsonl", "jsonl", ["--filter-in", "^ERROR", "--watch-for", "Finalization complete"]),
 ):
     started = time.monotonic()
-    result = subprocess.run([args.sluice, *flags], input=raw, capture_output=True, check=True, timeout=30)
+    result = subprocess.run([args.sluice, "--format", format_name, *flags], input=raw, capture_output=True, check=True, timeout=30)
     elapsed = time.monotonic() - started
-    (args.output_dir / (label + ".jsonl")).write_bytes(result.stdout)
+    extension = ".md" if format_name == "markdown" else ".jsonl"
+    (args.output_dir / (label + extension)).write_bytes(result.stdout)
     (args.output_dir / (label + ".stderr")).write_bytes(result.stderr)
-    events = [json.loads(line) for line in result.stdout.splitlines()]
-    assert events[-1]["type"] == "end"
-    assert events[-1]["input_bytes"] == len(raw)
-    if label == "batched":
-        assert "".join(e["text"] for e in events if e["type"] == "batch").encode() == raw
+    metrics = {"output_bytes": len(result.stdout), "elapsed_seconds": elapsed}
+    if format_name == "jsonl":
+        events = [json.loads(line) for line in result.stdout.splitlines()]
+        assert events[-1]["type"] == "end"
+        assert events[-1]["input_bytes"] == len(raw)
+        if label.startswith("batched"):
+            assert "".join(e["text"] for e in events if e["type"] == "batch").encode() == raw
+        else:
+            assert events[-1]["included_lines"] == 30
+            assert sum(e["type"] == "watch" for e in events) == 1
+        metrics.update(events=len(events),
+                       batch_text_bytes=sum(e["text_bytes"] for e in events if e["type"] == "batch"))
     else:
-        assert events[-1]["included_lines"] == 30
-        assert sum(e["type"] == "watch" for e in events) == 1
-    report["scenarios"][label] = {
-        "jsonl_bytes": len(result.stdout), "events": len(events),
-        "batch_text_bytes": sum(e["text_bytes"] for e in events if e["type"] == "batch"),
-        "elapsed_seconds": elapsed,
-    }
+        # This synthetic input has no Markdown headings of its own.
+        assert b"### End (input closed)" in result.stdout
+        metrics["events"] = sum(result.stdout.count(prefix) for prefix in
+                                (b"### Batch ", b"### Watch ", b"### End "))
+    report["scenarios"][label] = metrics
 rendered = json.dumps(report, indent=2) + "\n"
 (args.output_dir / "report.json").write_text(rendered)
 print(rendered, end="")

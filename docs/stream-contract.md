@@ -1,4 +1,4 @@
-# Stream contract (schema 1)
+# Stream and output contract
 
 This contract applies to the first implementation. The tool targets Unix/Linux.
 
@@ -38,7 +38,7 @@ into normal batches. Watch and batch output may consequently contain overlapping
 text; concatenate only `batch.text` to reconstruct the rendered selected stream.
 
 `--max-bytes` defaults to 10KiB and bounds UTF-8 bytes of batch **text**, excluding
-JSON syntax and escaping. Values range from 4 bytes through 16MiB. Split selected
+Markdown headings/fences or JSON syntax and escaping. Values range from 4 bytes through 16MiB. Split selected
 lines on UTF-8 scalar boundaries as necessary; there is no silent truncation.
 A batch can flush slightly below capacity if the next scalar cannot fit.
 
@@ -54,12 +54,32 @@ backpressure: a blocked consumer can delay reading, watches, and timed delivery.
 The delay is a scheduling target, not a guarantee under blocked output.
 Stdout writes use one bounded worker with an acknowledged event; the controller
 can abandon a blocked write on cancellation without joining that worker. A
-cancelled stream may contain an incomplete final JSON record. This permits
+cancelled stream may contain an incomplete Markdown block or JSON record. This permits
 bounded process cleanup even when a downstream reader stops consuming output.
 
-## JSONL output
+## Markdown output (default)
 
-Each stdout line is one complete JSON object. Every event has:
+`--format markdown` is the default. Each batch has a short heading with sequence,
+flush reason, and a continuation marker when its last line spans batches. A watch
+has a heading containing the matched literal, followed by its bounded excerpt.
+Watch headings escape Markdown punctuation and control characters so a literal
+cannot introduce additional headings or links. Truncated excerpts are marked.
+
+Log text is enclosed in code fences. The renderer chooses backticks or tildes and
+a fence longer than any run of the chosen character in the content. Text is kept
+as rendered by the engine; it is not summarized. A presentation newline is added
+when needed before a closing fence. The final heading reports input closure,
+child exit code, or signal, followed by the cumulative line counts.
+
+Markdown is a readable presentation, not a lossless record protocol. It omits most
+JSON metadata. Use the raw log for exact original bytes, or JSONL events to
+reconstruct selected rendered text without presentation separators. Framing is
+additional to the text-byte limit. Hooks and transports are optional: a watch is
+written and flushed to stdout immediately in either output format.
+
+## JSONL output (`--format jsonl`, schema 1)
+
+In this explicit stdout mode, each line is one complete JSON object. Every event has:
 
 - `schema`: integer `1`.
 - `seq`: monotonically increasing integer starting at 1 for this invocation.
@@ -98,9 +118,9 @@ an unprocessed suffix of the last read chunk. It is not necessarily the producer
 complete output if Sluice exits early.
 
 `--notify EXECUTABLE` invokes an executable for each event, in order, after the
-stdout event has been written and flushed. Repeated `--notify-arg ARG` supplies
+stdout event has been written and flushed, in either display format. Repeated `--notify-arg ARG` supplies
 literal arguments; Sluice invokes no shell. The executable receives that one JSONL
-event on stdin via a temporary seekable file. Its stdout is discarded and stderr
+event on stdin via a temporary seekable file, regardless of stdout format. Its stdout is discarded and stderr
 is inherited. The file is removed automatically. Events are not placed in argv.
 
 A nonzero hook exit, failed spawn, or timeout stops processing with no retry.

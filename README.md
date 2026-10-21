@@ -2,9 +2,12 @@
 
 **Batch and filter log streams for efficient agent monitoring.**
 
-Sluice (pronounced “sloos”) collects streaming output and releases JSONL batches
-when a size limit, time limit, or watched message is reached. It keeps routine
-logs out of an agent's context while preserving full evidence on disk.
+Sluice (pronounced “sloos”) batches and filters streaming output for agents and
+people. It writes readable **Markdown to stdout** when a size limit, time limit,
+or watched message is reached, while optionally preserving the full raw log.
+
+It works as an ordinary Unix filter. **Watches flush directly to stdout; chatd,
+registration, and notification hooks are not required.**
 
 ```sh
 build 2>&1 | sluice \
@@ -19,6 +22,15 @@ build 2>&1 | sluice \
 `--log` creates a **new** file; it refuses to overwrite an existing log. Watches
 match literal text before filtering, so the finalization event is delivered even
 when its line fails the inclusion filter. Flags use hyphens consistently.
+
+For a simple completion watch:
+
+```sh
+job 2>&1 | sluice --watch-for 'Tests finished'
+```
+
+The match immediately emits a short watch heading and log excerpt, even while
+stdin remains open. Nothing needs to be registered or listening on a server.
 
 ## Install
 
@@ -35,8 +47,8 @@ There are no published release binaries or crates.io release yet.
 
 ## Batch, filter, watch
 
-- `--max-bytes 10KiB`: maximum rendered text bytes in a batch. JSON framing and
-  escaping add overhead. Oversized selected lines can span multiple batches.
+- `--max-bytes 10KiB`: maximum rendered text bytes in a batch. Output headings,
+  fences, or JSON framing add overhead. Oversized selected lines can span multiple batches.
 - `--max-delay 10m`: age of the first pending completed line, rather than an idle
   timeout. Continuous input cannot postpone the deadline. No empty batches.
 - `--filter-in REGEX`: include lines matching any supplied pattern; default all.
@@ -44,18 +56,24 @@ There are no published release binaries or crates.io release yet.
 - `--watch-for TEXT`: emit an immediate watch event, once per matching physical line,
   even when that line is filtered out or has not yet ended with a newline.
 - `--max-line-bytes 64KiB`: bound physical line buffering; exceeding it is an error.
-- `--format jsonl`: explicit spelling of the only current output format.
+- `--format markdown`: the default; short headings with literal log text in code blocks.
+- `--format jsonl`: structured events for programs that need fields and counters.
 
 Filter flags and watch flags are repeatable. Filters see original bytes without
 LF/CRLF terminators; delivered text preserves terminators and replaces invalid
 UTF-8. A final partial line is processed at EOF. Until it completes, a partial
 line can trigger a watch but does not start a normal batch's timer.
 
-Every output line is a complete JSON object with `schema: 1`, a sequence number,
-a `type` (`batch`, `watch`, or `end`), a reason, and cumulative input/filter counts.
-Batch events contain `text`, `text_bytes`, `line`, and a `continued` flag. A clean
-stream ends with an `end` event, including for empty input. See the
-[stream contract](docs/stream-contract.md) for exact field and boundary semantics.
+Markdown uses short batch/watch headings and a final line-count summary. Log text
+is not summarized or rewritten; a code fence that cannot collide with the content
+keeps it readable. Partial lines may need a presentation newline before the closing
+fence. The optional raw log retains exact original bytes.
+
+With `--format jsonl`, every output line is a complete JSON event (`batch`, `watch`,
+or `end`) with schema version, sequence number, reason, and counters. **Existing
+stdout consumers that parse JSON must now explicitly select `--format jsonl`.**
+Hook input remains JSONL regardless of stdout format. The
+[stream contract](docs/stream-contract.md) specifies both formats.
 
 ## Run a command and report its status
 
@@ -71,52 +89,36 @@ Use `sh -c '...'` explicitly when shell syntax is needed.
 In stdin-filter mode, EOF says only that input closed. Use shell `pipefail` to
 retain upstream failure status, or use `run` when Sluice should own the command.
 
-## Notify an agent without polling
+## Optional notification hooks
 
-Configure a distinct sender in chatd first (for example, add `sluice` to the
-`participants` list in `~/.config/chatd/config.toml` and restart chatd). Merely
-passing `--sender sluice` does not register it. Check the delivery endpoint
-**before** starting a job. This example assumes `codex` is already bound to the
-session identified by `CODEX_THREAD_ID`:
+A consumer already waiting on stdout sees watch output immediately. To wake an
+agent that has stopped waiting, optionally connect a notification executable:
 
 ```sh
-: "${CODEX_THREAD_ID:?Set CODEX_THREAD_ID to the intended Codex session ID}"
-python3 examples/chatd-notify.py \
-  --sender sluice --to codex --conversation build-42 \
-  --expect-session "$CODEX_THREAD_ID" --check
-
-sluice --watch-for 'FAILED' \
-  --notify ./examples/chatd-notify.py \
-  --notify-arg=--sender --notify-arg=sluice \
-  --notify-arg=--to --notify-arg=codex \
-  --notify-arg=--conversation --notify-arg=build-42 \
-  --notify-arg=--expect-session --notify-arg="$CODEX_THREAD_ID" \
-  run -- cargo test
+sluice --watch-for 'FAILED' --notify /path/to/notifier run -- cargo test
 ```
 
-This optional example needs an existing `chatctl` installation and configured
-recipient delivery endpoint. Sender and recipient must both be configured chatd
-participants, and they must be distinct (chatd rejects self-messages). Choose
-identities and the intended session ID appropriate for your installation.
+The hook receives one **JSONL** event on stdin even when stdout is Markdown.
+Repeated `--notify-arg` flags pass literal arguments without a shell. Hooks run
+sequentially after stdout is flushed; failure stops processing, and the default
+30s timeout kills a stuck hook's process group. There are no automatic retries.
+Slow hooks or blocked stdout impose backpressure.
 
-It sends only watch and end events as **requests**, which wake chatd's default
-push policy. `info` messages normally wait for a future waking request; use
-`--kind info` explicitly only when that behavior is intended. `--check` verifies
-the identities, delivery path, wake policy, and optional expected session without
-sending a message. `--expect-session` also checks routing on each hook invocation.
-A participant name identifies one endpoint, not all Codex sessions. Successful
-storage/submission is not proof that an agent received or acted on the alert;
-check chatd submission and acknowledgement receipts when diagnosing delivery.
+The [optional chatd adapter guide](docs/chatd.md) covers one possible transport,
+including registration, session routing, and wake policy. It is separate from
+Sluice's normal stream processing.
 
-Any executable can be a hook. Sluice passes each JSONL event on stdin, with literal
-`--notify-arg` values and no implicit shell. Hooks run sequentially after stdout
-is flushed. A failed hook stops Sluice; a timeout (default 30s) kills its process
-group. There are no automatic retries or durable-delivery guarantees. Slow hooks
-or blocked stdout impose backpressure and can delay further notifications.
+## Reading service logs
 
-Writing batches to a pipe or file alone does not wake an agent. The hook and its
-recipient integration must provide that wakeup. Sluice handles collection and
-framing; the transport handles delivery.
+For a service running Sluice with the Markdown default, view recent output without
+journal prefixes or a JSON decoder:
+
+```sh
+journalctl --user -u my-job -o cat -n 40 --no-pager
+```
+
+Existing services started with an older Sluice binary keep their original format
+until restarted. They do not need to be interrupted to update the installed CLI.
 
 ## Why this helps
 
@@ -126,8 +128,8 @@ frequency; filtering reduces delivered content. Combining unchanged logs into
 larger chunks alone does not reduce their token count.
 
 Sluice uses deterministic rules and requires no LLM, daemon, or agent framework.
-Run the reproducible local comparison to retain original input, both JSONL
-outputs, and a measured byte/event report:
+Run the reproducible local comparison to retain original input, Markdown and
+JSONL outputs with and without filtering, and a measured byte/event report:
 
 ```sh
 cargo build --release --locked
@@ -147,7 +149,7 @@ python3 -m unittest discover -s tests -p 'test_*.py'
 ```
 
 The suite covers timers, Unicode splits, filtering, cross-read watches, raw logs,
-notification failures, real pipes, command status, and cancellation. The
+notification failures, real pipes, command status, both output formats, and cancellation. The
 [plan](PLAN.md) records implementation stages and remaining work.
 
 ## License
