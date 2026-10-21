@@ -12,6 +12,7 @@ pub struct Cli {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
 pub enum Format {
+    Raw,
     Markdown,
     Jsonl,
 }
@@ -39,8 +40,8 @@ pub struct Options {
     /// Maximum physical line bytes, including LF; longer lines fail explicitly
     #[arg(long, default_value = "64KiB", value_parser = size)]
     pub max_line_bytes: usize,
-    /// Readable Markdown, or structured JSONL (schema version 1)
-    #[arg(long, default_value = "markdown", value_enum)]
+    /// Plain text (default), Markdown, or structured JSONL (schema version 1)
+    #[arg(long, default_value = "raw", value_enum)]
     pub format: Format,
     /// Deliver each event as JSONL to an executable, independent of stdout format
     #[arg(long, value_name = "EXECUTABLE")]

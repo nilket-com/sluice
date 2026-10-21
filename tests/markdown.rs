@@ -16,7 +16,11 @@ impl Drop for Running {
 }
 
 fn output(args: &[&str], input: &[u8]) -> Output {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_sluice"))
+    let mut command = Command::new(env!("CARGO_BIN_EXE_sluice"));
+    if !args.contains(&"--format") {
+        command.args(["--format", "markdown"]);
+    }
+    let mut child = command
         .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -28,7 +32,7 @@ fn output(args: &[&str], input: &[u8]) -> Output {
 }
 
 #[test]
-fn markdown_is_default_and_preserves_readable_log_text() {
+fn markdown_option_preserves_readable_log_text() {
     let result = output(&[], b"a \"quoted\" path\\file\nsecond\n");
     assert!(result.status.success());
     let text = String::from_utf8(result.stdout).unwrap();
@@ -89,6 +93,7 @@ fn markdown_hooks_still_receive_jsonl_independent_of_stdout() {
 fn live_header(args: &[&str], input: &[u8], expected: &str) {
     let mut child = Running(
         Command::new(env!("CARGO_BIN_EXE_sluice"))
+            .args(["--format", "markdown"])
             .args(args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

@@ -54,12 +54,31 @@ backpressure: a blocked consumer can delay reading, watches, and timed delivery.
 The delay is a scheduling target, not a guarantee under blocked output.
 Stdout writes use one bounded worker with an acknowledged event; the controller
 can abandon a blocked write on cancellation without joining that worker. A
-cancelled stream may contain an incomplete Markdown block or JSON record. This permits
+cancelled stream may contain partial raw text, an incomplete Markdown block, or a partial JSON record. This permits
 bounded process cleanup even when a downstream reader stops consuming output.
 
-## Markdown output (default)
+## Raw text output (default)
 
-`--format markdown` is the default. Each batch has a short heading with sequence,
+`--format raw` writes batch text directly, with no headers, fences, separators,
+EOF summary, or status message. Without filters or watches, concatenated stdout
+is exactly the engine's rendered text; there is no formatting overhead. Raw text
+still uses UTF-8 replacement for invalid input bytes. `--log` is the byte-exact
+original stream.
+
+A watch flushes pending batch text and immediately writes the matched literal
+followed by LF, even when its line is incomplete or filtered out. It does not
+print an excerpt or metadata. Watch signals are additional to selected batch
+text, so the literal may appear again when its line is eventually batched. No
+deduplication or semantic rewriting occurs.
+
+Raw mode has no event framing and prints nothing for an end event. Use process
+status for command success, or select Markdown/JSONL when completion metadata
+is needed. Hooks still receive every structured event, including end events
+whose raw stdout is empty.
+
+## Markdown output (`--format markdown`)
+
+`--format markdown` selects the readable presentation. Each batch has a short heading with sequence,
 flush reason, and a continuation marker when its last line spans batches. A watch
 has a heading containing the matched literal, followed by its bounded excerpt.
 Watch headings escape Markdown punctuation and control characters so a literal
@@ -75,7 +94,7 @@ Markdown is a readable presentation, not a lossless record protocol. It omits mo
 JSON metadata. Use the raw log for exact original bytes, or JSONL events to
 reconstruct selected rendered text without presentation separators. Framing is
 additional to the text-byte limit. Hooks and transports are optional: a watch is
-written and flushed to stdout immediately in either output format.
+written and flushed to stdout immediately in all three output formats.
 
 ## JSONL output (`--format jsonl`, schema 1)
 
@@ -103,7 +122,8 @@ fields are omitted, not filled with sentinel values. A watch can precede the
 normal batch containing that same physical line. Counters are ingestion snapshots,
 not counts of just the event's text.
 
-EOF emits exactly one end event, including for empty input. Processing errors
+The engine emits exactly one end event at EOF, including for empty input.
+Markdown/JSONL display it; raw stdout does not. Processing errors
 write diagnostics to stderr and exit nonzero; they may leave a stream without an
 end event. Consumers should distinguish a clean end event from pipe closure.
 There is no implicit claim of job success in filter mode.
@@ -118,7 +138,7 @@ an unprocessed suffix of the last read chunk. It is not necessarily the producer
 complete output if Sluice exits early.
 
 `--notify EXECUTABLE` invokes an executable for each event, in order, after the
-stdout event has been written and flushed, in either display format. Repeated `--notify-arg ARG` supplies
+stdout payload has been written and flushed, in the selected display format. Repeated `--notify-arg ARG` supplies
 literal arguments; Sluice invokes no shell. The executable receives that one JSONL
 event on stdin via a temporary seekable file, regardless of stdout format. Its stdout is discarded and stderr
 is inherited. The file is removed automatically. Events are not placed in argv.

@@ -18,15 +18,17 @@ raw = b"".join(
 (args.output_dir / "raw.log").write_bytes(raw)
 report = {"input_bytes": len(raw), "input_lines": raw.count(b"\n"), "scenarios": {}}
 for label, format_name, flags in (
+    ("batched-raw", "raw", []),
     ("batched-markdown", "markdown", []),
     ("batched-jsonl", "jsonl", []),
+    ("filtered-raw", "raw", ["--filter-in", "^ERROR", "--watch-for", "Finalization complete"]),
     ("filtered-markdown", "markdown", ["--filter-in", "^ERROR", "--watch-for", "Finalization complete"]),
     ("filtered-jsonl", "jsonl", ["--filter-in", "^ERROR", "--watch-for", "Finalization complete"]),
 ):
     started = time.monotonic()
     result = subprocess.run([args.sluice, "--format", format_name, *flags], input=raw, capture_output=True, check=True, timeout=30)
     elapsed = time.monotonic() - started
-    extension = ".md" if format_name == "markdown" else ".jsonl"
+    extension = {"raw": ".txt", "markdown": ".md", "jsonl": ".jsonl"}[format_name]
     (args.output_dir / (label + extension)).write_bytes(result.stdout)
     (args.output_dir / (label + ".stderr")).write_bytes(result.stderr)
     metrics = {"output_bytes": len(result.stdout), "elapsed_seconds": elapsed}
@@ -41,6 +43,12 @@ for label, format_name, flags in (
             assert sum(e["type"] == "watch" for e in events) == 1
         metrics.update(events=len(events),
                        batch_text_bytes=sum(e["text_bytes"] for e in events if e["type"] == "batch"))
+    elif format_name == "raw":
+        expected = raw if label.startswith("batched") else (
+            b"".join(line for line in raw.splitlines(keepends=True) if line.startswith(b"ERROR"))
+            + b"Finalization complete\n")
+        assert result.stdout == expected
+        metrics["framing"] = "none"
     else:
         # This synthetic input has no Markdown headings of its own.
         assert b"### End (input closed)" in result.stdout

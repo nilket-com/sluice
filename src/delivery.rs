@@ -63,7 +63,7 @@ impl Output {
 
 impl Sink for Output {
     fn emit(&mut self, event: Event) -> io::Result<()> {
-        // Hooks always receive structured events. Plain Markdown pipelines do
+        // Hooks always receive structured events. Plain text and Markdown pipelines do
         // not pay for JSON encoding or allocate a second serialized payload.
         let json = if self.format == Format::Jsonl || self.notify.is_some() {
             let mut bytes = serde_json::to_vec(&event)?;
@@ -73,6 +73,7 @@ impl Sink for Output {
             None
         };
         let output = match self.format {
+            Format::Raw => Arc::new(render::raw(&event).into_bytes()),
             Format::Markdown => Arc::new(render::markdown(&event).into_bytes()),
             Format::Jsonl => json.as_ref().unwrap().clone(),
         };

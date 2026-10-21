@@ -4,8 +4,8 @@
 
 The initial Rust implementation covers the stream contract, local filter,
 sequential optional notification hooks, and command ownership (stages 1–4 below).
-Markdown is the default stdout presentation; JSONL is an explicit structured mode
-and remains the hook protocol. Watches flush directly to stdout without a transport.
+Raw text is the default stdout presentation; Markdown and JSONL are explicit modes.
+JSONL remains the hook protocol. Watches flush directly to stdout without a transport.
 The schema and boundary decisions are specified in
 [docs/stream-contract.md](docs/stream-contract.md). CI and a reproducible byte/event
 comparison are included. Release binaries, durable delivery, and measurements of
@@ -61,7 +61,7 @@ Prefer a single Rust executable with a small dependency set. Confirm this choice
 while implementing the stream contract; no daemon is needed for the first release.
 
 Implement stdin ingestion, simultaneous size/time triggers, filters, literal
-watches, Markdown presentation and JSONL framing, raw logging, EOF handling, and helpful argument errors.
+watches, raw text and Markdown presentation, JSONL framing, raw logging, EOF handling, and helpful argument errors.
 Use bounded buffers and explicit backpressure. A stalled consumer may delay
 further reading; document that the delay target cannot override blocked output.
 

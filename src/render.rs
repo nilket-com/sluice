@@ -1,6 +1,17 @@
 use crate::engine::Event;
 use std::fmt::Write;
 
+/// Minimal stdout: batch text and immediate watch literals, with no framing.
+/// Watch signals may repeat text that later appears in a selected batch.
+pub fn raw(event: &Event) -> String {
+    match event.kind {
+        "batch" => event.text.clone().unwrap_or_default(),
+        "watch" => format!("{}\n", event.watch.as_deref().unwrap_or_default()),
+        "end" => String::new(),
+        _ => unreachable!("the engine emits only batch, watch, and end events"),
+    }
+}
+
 /// Presentation only: the engine and hook schema remain independent of stdout.
 pub fn markdown(event: &Event) -> String {
     let mut out = String::new();

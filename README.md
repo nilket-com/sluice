@@ -3,7 +3,7 @@
 **Batch and filter log streams for efficient agent monitoring.**
 
 Sluice (pronounced “sloos”) batches and filters streaming output for agents and
-people. It writes readable **Markdown to stdout** when a size limit, time limit,
+people. It writes **raw text to stdout by default** when a size limit, time limit,
 or watched message is reached, while optionally preserving the full raw log.
 
 It works as an ordinary Unix filter. **Watches flush directly to stdout; chatd,
@@ -29,7 +29,7 @@ For a simple completion watch:
 job 2>&1 | sluice --watch-for 'Tests finished'
 ```
 
-The match immediately emits a short watch heading and log excerpt, even while
+The match immediately prints `Tests finished` on its own line, even while
 stdin remains open. Nothing needs to be registered or listening on a server.
 
 ## Install
@@ -56,7 +56,8 @@ There are no published release binaries or crates.io release yet.
 - `--watch-for TEXT`: emit an immediate watch event, once per matching physical line,
   even when that line is filtered out or has not yet ended with a newline.
 - `--max-line-bytes 64KiB`: bound physical line buffering; exceeding it is an error.
-- `--format markdown`: the default; short headings with literal log text in code blocks.
+- `--format raw`: the default; batch text with no headers, fences, or end summaries.
+- `--format markdown`: short headings with literal log text in code blocks.
 - `--format jsonl`: structured events for programs that need fields and counters.
 
 Filter flags and watch flags are repeatable. Filters see original bytes without
@@ -64,16 +65,22 @@ LF/CRLF terminators; delivered text preserves terminators and replaces invalid
 UTF-8. A final partial line is processed at EOF. Until it completes, a partial
 line can trigger a watch but does not start a normal batch's timer.
 
-Markdown uses short batch/watch headings and a final line-count summary. Log text
-is not summarized or rewritten; a code fence that cannot collide with the content
-keeps it readable. Partial lines may need a presentation newline before the closing
-fence. The optional raw log retains exact original bytes.
+Raw output writes selected batch text directly, without adding separators or an
+EOF summary. Watches flush the pending batch and immediately print only the
+matched literal followed by a newline. This watch signal is additional to normal
+selected log content: the phrase can appear again when its line is later batched.
+Watches bypass filters, so even an excluded completion message can surface.
 
-With `--format jsonl`, every output line is a complete JSON event (`batch`, `watch`,
-or `end`) with schema version, sequence number, reason, and counters. **Existing
-stdout consumers that parse JSON must now explicitly select `--format jsonl`.**
-Hook input remains JSONL regardless of stdout format. The
-[stream contract](docs/stream-contract.md) specifies both formats.
+Without watches or filters, raw stdout is exactly the engine's rendered text,
+with no formatting overhead. “Raw” means plain text, not a binary transport:
+invalid UTF-8 is replaced; `--log` preserves exact original bytes.
+
+Choose `--format markdown` for batch/watch headings and fenced log text, or
+`--format jsonl` for structured events and counters. **Consumers expecting either
+previous default must now select their format explicitly.** A raw pipe's EOF
+says only that input closed; `run` returns the actual command status. Hook input
+remains JSONL in every stdout format. The
+[stream contract](docs/stream-contract.md) specifies all three formats.
 
 ## Run a command and report its status
 
@@ -82,7 +89,7 @@ sluice --max-delay 30s --watch-for 'FAILED' run -- cargo test
 ```
 
 `run` combines child stdout/stderr into one pipe, supplies no child stdin, and
-returns the child's exit code. Its final event records the exit code or signal.
+returns the child's exit code. Markdown/JSONL completion output records the exit code or signal; raw adds no status text.
 SIGINT/SIGTERM are forwarded to the child's process group, with bounded cleanup.
 Use `sh -c '...'` explicitly when shell syntax is needed.
 
@@ -98,7 +105,7 @@ agent that has stopped waiting, optionally connect a notification executable:
 sluice --watch-for 'FAILED' --notify /path/to/notifier run -- cargo test
 ```
 
-The hook receives one **JSONL** event on stdin even when stdout is Markdown.
+The hook receives one **JSONL** event on stdin regardless of stdout format.
 Repeated `--notify-arg` flags pass literal arguments without a shell. Hooks run
 sequentially after stdout is flushed; failure stops processing, and the default
 30s timeout kills a stuck hook's process group. There are no automatic retries.
@@ -110,7 +117,7 @@ Sluice's normal stream processing.
 
 ## Reading service logs
 
-For a service running Sluice with the Markdown default, view recent output without
+For a service running Sluice with the raw default (or explicit Markdown), view output without
 journal prefixes or a JSON decoder:
 
 ```sh
@@ -128,7 +135,7 @@ frequency; filtering reduces delivered content. Combining unchanged logs into
 larger chunks alone does not reduce their token count.
 
 Sluice uses deterministic rules and requires no LLM, daemon, or agent framework.
-Run the reproducible local comparison to retain original input, Markdown and
+Run the reproducible local comparison to retain original input, raw, Markdown, and
 JSONL outputs with and without filtering, and a measured byte/event report:
 
 ```sh
@@ -149,7 +156,7 @@ python3 -m unittest discover -s tests -p 'test_*.py'
 ```
 
 The suite covers timers, Unicode splits, filtering, cross-read watches, raw logs,
-notification failures, real pipes, command status, both output formats, and cancellation. The
+notification failures, real pipes, command status, all three output formats, and cancellation. The
 [plan](PLAN.md) records implementation stages and remaining work.
 
 ## License
