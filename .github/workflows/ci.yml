@@ -15,6 +15,7 @@ jobs:
       - run: rustup toolchain install "${{ matrix.toolchain }}" --profile minimal --component rustfmt --component clippy
       - run: cargo +${{ matrix.toolchain }} fmt --check
       - run: cargo +${{ matrix.toolchain }} clippy --locked --all-targets -- -D warnings
+      - run: python3 -m unittest discover -s tests -p 'test_*.py'
       - run: cargo +${{ matrix.toolchain }} test --locked
       - run: cargo +${{ matrix.toolchain }} build --locked
       - run: python3 examples/compare.py --sluice target/debug/sluice --output-dir /tmp/sluice-comparison
