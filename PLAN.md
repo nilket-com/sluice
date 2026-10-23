@@ -84,9 +84,9 @@ Add an executable delivery hook with explicit arguments, without implicit shell
 interpolation. Specify ordering, bounded queues, failure handling, and whether
 retries can duplicate deliveries before advertising reliable delivery.
 
-Start with a documented chatd adapter example. Keep transport integration separate
-from stream processing. Notification integration must actually wake the consumer;
-saving another file that the agent must poll is insufficient.
+Keep transport integration separate from stream processing. Agent-wake adapters
+(chatd and native Codex) were removed on 2026-10-23: each per-event wake is a model
+turn, so agents use Sluice as a blocking tool call instead.
 
 Implemented the bounded optional outbox slice: stable IDs, fsynced events and
 attempt states, independent one-shot dispatch, retained bounded adapter evidence,

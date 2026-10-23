@@ -6,8 +6,13 @@ Sluice (pronounced “sloos”) batches and filters streaming output for agents 
 people. It writes **raw text to stdout by default** when a size limit, time limit,
 or watched message is reached, while optionally preserving the full raw log.
 
-It works as an ordinary Unix filter. **Watches flush directly to stdout; chatd,
-registration, and notification hooks are not required.**
+It works as an ordinary Unix filter. **Watches flush directly to stdout; no daemon,
+registration or notification hook is required.**
+
+Agents should run it as one blocking tool call: the call returns once, with the
+filtered summary, when the job ends or a watched line appears. Do not wire Sluice
+to anything that wakes a model agent per event; that turns each notice into a
+model turn.
 
 ```sh
 build 2>&1 | sluice \
@@ -98,8 +103,9 @@ retain upstream failure status, or use `run` when Sluice should own the command.
 
 ## Optional notification hooks
 
-A consumer already waiting on stdout sees watch output immediately. To wake an
-agent that has stopped waiting, optionally connect a notification executable:
+A consumer already waiting on stdout sees watch output immediately. For programs
+that react to events (not model agents; see above), optionally connect a
+notification executable:
 
 ```sh
 sluice --watch-for 'FAILED' --notify /path/to/notifier run -- cargo test
@@ -136,17 +142,12 @@ An explicit recipient receipt is needed to mark an event received. This does not
 mean the job passed, was audited, or was approved.
 
 The outbox is local Linux storage, not an automatic wakeup service. Schedule or
-invoke its dispatcher independently and supply an adapter that wakes the intended
+invoke its dispatcher independently and supply an adapter for the intended
 recipient. Dispatch is a one-shot snapshot, not a daemon. Disk retention is manual;
 use a private directory on a local filesystem. See the
 [outbox contract](docs/stream-contract.md#durable-outbox-linux) for bounds and
 crash behavior. Existing `--notify` remains synchronous fail-fast compatibility
 mode and cannot be combined with `--outbox`.
-
-The [native Codex adapter guide](docs/native-codex.md) uses the local queue command
-without chatd. The [optional chatd adapter guide](docs/chatd.md) covers another transport,
-including registration, session routing, and wake policy. It is separate from
-Sluice's normal stream processing.
 
 ## Reading service logs
 
@@ -185,7 +186,6 @@ wakeups. A notification's real latency also depends on the transport and consume
 cargo fmt --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
-python3 -m unittest discover -s tests -p 'test_*.py'
 ```
 
 The suite covers timers, Unicode splits, filtering, cross-read watches, raw logs,

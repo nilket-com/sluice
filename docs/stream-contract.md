@@ -244,4 +244,4 @@ Acknowledgment is a human/recipient assertion, not cryptographic authentication.
 It is separate from adapter exit success, job success, audit and promotion.
 There is no automatic retry, background daemon, log rotation or queue pruning.
 Use a private trusted local directory; other users able to modify it can tamper
-with evidence. Raw stdout remains unchanged and chatd is not required.
+with evidence. Raw stdout remains unchanged and no external service is required.
