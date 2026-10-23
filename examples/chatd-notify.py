@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Forward watch/end events as waking requests to an existing chatd endpoint."""
+"""Forward watch/end events to an existing chatd endpoint, as non-waking info by default."""
 import argparse
 import json
 import re
@@ -31,8 +31,8 @@ def main():
     parser.add_argument("--to", help="participant bound to the intended session")
     parser.add_argument("--conversation")
     parser.add_argument("--lookup-event", help="look up a stable event ID without resending")
-    parser.add_argument("--kind", choices=("request", "info"), default="request",
-                        help="request wakes by default; info usually only stores a message")
+    parser.add_argument("--kind", choices=("request", "info"), default="info",
+                        help="info (default) is stored and rides in the next digest; request wakes the agent")
     parser.add_argument("--expect-session", help="refuse a delivery endpoint bound to a different session")
     parser.add_argument("--check", action="store_true", help="check identities and wake path without sending")
     args = parser.parse_args()
@@ -63,7 +63,8 @@ def main():
             raise RuntimeError(f"{args.to!r} is bound to session {recipient.get('session')!r}, "
                                f"expected {args.expect_session!r}; refusing misrouted notification")
         kinds = recipient.get("wake_kinds")
-        if recipient.get("transport") == "push" and kinds is not None:
+        # Only an explicit request must wake; info is meant to wait for the next digest.
+        if args.kind == "request" and recipient.get("transport") == "push" and kinds is not None:
             if args.kind not in kinds and "all" not in kinds:
                 raise RuntimeError(f"{args.kind!r} will not wake {args.to!r}; wake policy is {kinds}")
         if args.check:

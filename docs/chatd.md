@@ -30,9 +30,11 @@ recipient delivery endpoint. Sender and recipient must both be configured chatd
 participants, and they must be distinct (chatd rejects self-messages). Choose
 identities and the intended session ID appropriate for your installation.
 
-It sends only watch and end events as **requests**, which wake chatd's default
-push policy. `info` messages normally wait for a future waking request; use
-`--kind info` explicitly only when that behavior is intended. `--check` verifies
+It sends only watch and end events, as **info** by default: chatd stores them and
+carries them in the digest of the next waking push, so a job notice never costs
+a model turn of its own. Pass `--kind request` only for a detached job whose
+completion must wake the agent, and send one notice per job, not per step. An
+agent waiting on a job it started should block on it directly instead. `--check` verifies
 the identities, delivery path, wake policy, and optional expected session without
 sending a message. `--expect-session` also checks routing on each hook invocation.
 A participant name identifies one endpoint, not all Codex sessions. Successful

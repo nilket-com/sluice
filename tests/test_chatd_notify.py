@@ -50,11 +50,11 @@ else: sys.exit(2)
             text=True, env=self.env, timeout=5,
         )
 
-    def test_default_end_alert_uses_waking_request(self):
+    def test_default_end_alert_is_non_waking_info(self):
         result = self.invoke(event={"type": "end", "reason": "exit", "exit_code": 0})
         self.assertEqual(result.returncode, 0, result.stderr)
         record = json.loads((self.path / "record.json").read_text())
-        self.assertEqual(record["args"][record["args"].index("--kind") + 1], "request")
+        self.assertEqual(record["args"][record["args"].index("--kind") + 1], "info")
         self.assertEqual(record["body"]["exit_code"], 0)
         self.assertIn("test-message-id", result.stderr)
 
@@ -111,10 +111,10 @@ else: sys.exit(2)
         self.assertEqual(result.returncode, 1)
         self.assertIn("unknown participant 'unregistered'", result.stderr)
 
-    def test_preflight_rejects_nonwaking_kind(self):
+    def test_preflight_accepts_nonwaking_info(self):
+        # info is the quiet default: it is stored for the next digest and need not wake anyone.
         result = self.invoke("--check", "--kind", "info")
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("will not wake", result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_preflight_rejects_missing_endpoint(self):
         self.env["NO_PATH"] = "1"
